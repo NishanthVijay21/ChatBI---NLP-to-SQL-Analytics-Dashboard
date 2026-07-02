@@ -1,7 +1,7 @@
 # ChatBI---NLP-to-SQL-Analytics-Dashboard ◧
 **Serverless NLP-to-SQL Analytics & Visualization Engine**
 
-OmniQuery AI is a full-stack, AI-powered Business Intelligence copilot that allows users to query complex, multi-table datasets using plain English. It autonomously translates natural language into highly optimized DuckDB SQL and renders interactive Vega-Lite visualizations directly in the browser. 
+ChatBI is a full-stack, AI-powered Business Intelligence copilot that allows users to query complex, multi-table datasets using plain English. It autonomously translates natural language into highly optimized DuckDB SQL and renders interactive Vega-Lite visualizations directly in the browser. 
 
 Designed with performance and infrastructure cost in mind, OmniQuery utilizes a custom client-side rendering pipeline to generate multi-page PDF presentation dashboards with zero backend server bloat.
 
