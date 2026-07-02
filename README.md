@@ -17,10 +17,3 @@ Designed with performance and infrastructure cost in mind, OmniQuery utilizes a 
 * **Visualization:** Vega-Lite, Vega-Embed
 * **Backend:** Python 3, DuckDB, Pandas
 * **AI / LLM:** Cloudflare Workers AI (GLM-5.2), OpenAI Python SDK
-
-## 🚀 Quickstart / Installation
-
-**1. Clone the repository**
-```bash
-git clone [https://github.com/yourusername/omniquery-ai.git](https://github.com/yourusername/omniquery-ai.git)
-cd omniquery-ai
