@@ -16,7 +16,7 @@ from llm_engine import LLMEngine
 from chart_component import render_chart, render_dashboard_export_button
 
 load_dotenv()
-st.set_page_config(page_title="Querydeck", page_icon="◧", layout="wide")
+st.set_page_config(page_title="ChatBI", page_icon="◧", layout="wide")
 
 
 # ──────────────────────────────────────────── session state
