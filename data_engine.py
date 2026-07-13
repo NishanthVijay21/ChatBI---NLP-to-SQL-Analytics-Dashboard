@@ -65,6 +65,23 @@ class DataEngine:
             self.con.execute(f"DROP TABLE IF EXISTS {table_name}")
             del self.tables[table_name]
 
+    # ------------------------------------------------------------------ preprocessing i/o
+
+    def get_dataframe(self, table_name: str) -> pd.DataFrame:
+        """Pull a full table into pandas for preprocessing."""
+        return self.con.execute(f"SELECT * FROM {table_name}").fetchdf()
+
+    def replace_table_data(self, table_name: str, df: pd.DataFrame) -> None:
+        """
+        Overwrite an existing table's contents with a transformed DataFrame
+        (e.g. after cleaning/encoding via the Preprocessor) and refresh its
+        cached schema/row-count metadata.
+        """
+        self.con.register("_incoming", df)
+        self.con.execute(f"CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM _incoming")
+        self.con.unregister("_incoming")
+        self._refresh_schema(table_name)
+
     # ------------------------------------------------------------------ merging
 
     def merge_tables(self, sql: str, result_table: str) -> pd.DataFrame:
