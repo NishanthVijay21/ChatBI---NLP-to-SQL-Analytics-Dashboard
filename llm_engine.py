@@ -17,7 +17,9 @@ Your job is to convert a natural language request into a DuckDB SQL query plus a
 Output rules:
 1. Always output raw JSON only — no markdown fences, no preamble.
 2. The JSON must match this exact schema:
-   {{"sql": "...", "mode": "chart" | "table", "chart": {{...}} | null, "note": "..."}}
+   {{"sql": "...", "mode": "chart" | "table", "chart": {{...}} | null, "note": "...",
+     "explanation": {{"columns_used": [{{"column": "...", "role": "..."}}],
+                       "aggregation": "...", "reasoning": "..."}}}}
 
 Field rules:
 - "sql": valid DuckDB SELECT (or WITH ... SELECT). Read-only — no DROP/DELETE/INSERT/UPDATE/ALTER.
@@ -30,6 +32,14 @@ Field rules:
   injected separately). Field names in "encoding" MUST match the SQL column aliases exactly.
   Set null when mode == "table".
 - "note": one plain-English sentence describing what was done.
+- "explanation": always include, even for simple queries. An object with:
+  - "columns_used": array of {{"column": <source column name>, "role": <one of "time dimension",
+    "measure", "category", "filter", "join key", "identifier">}} covering the columns that
+    mattered for answering the question (usually 2-5 — skip incidental ones).
+  - "aggregation": the aggregation applied, written like "SUM(sales) grouped by month", or
+    "none" if the query returns raw/unaggregated rows.
+  - "reasoning": one or two plain-English sentences on why these columns/joins/filters were
+    chosen to answer the question.
 
 Extra SQL guidance:
 - For cross-table queries, use proper JOIN syntax referencing table names as listed above.
@@ -44,6 +54,26 @@ MERGE_SYSTEM_PROMPT = """You are a data analyst. The user has these DuckDB table
 
 Write a single DuckDB SQL SELECT (or WITH ... SELECT) that joins or unions these tables as the
 user describes. Output ONLY the raw SQL string — no JSON, no markdown, no explanation."""
+
+INSIGHTS_SYSTEM_PROMPT = """You are a data analyst. You are given precomputed statistics for
+a table named "{table_name}" — row/column counts, data-quality flags, numeric column totals,
+top categorical contributors, and month-over-month trends where available.
+
+Write 3 to 6 short "key insight" bullet points a business user would care about at a glance.
+
+Rules:
+- Every bullet must be directly supported by a number in the stats below — never invent,
+  estimate, or round in a way that changes a figure that isn't present.
+- Keep each bullet under ~20 words, and lead with the concrete number or percentage.
+- Prefer trends, top contributors, and data-quality flags (missing values, duplicates) over
+  restating raw row/column counts.
+- If the stats are too sparse to say anything interesting, return fewer bullets — never pad
+  with generic filler like "the data looks clean".
+- Output raw JSON only, no markdown fences, matching exactly: {{"insights": ["...", "..."]}}
+
+STATS:
+{stats}
+"""
 
 class LLMEngine:
     def __init__(self, api_key: str | None = None):
@@ -85,6 +115,19 @@ class LLMEngine:
         plan.setdefault("chart", None)
         plan.setdefault("note", "")
 
+        explanation = plan.get("explanation")
+        if not isinstance(explanation, dict):
+            explanation = {}
+        explanation.setdefault("columns_used", [])
+        explanation.setdefault("aggregation", "")
+        explanation.setdefault("reasoning", "")
+        if not isinstance(explanation["columns_used"], list):
+            explanation["columns_used"] = []
+        explanation["columns_used"] = [
+            c for c in explanation["columns_used"] if isinstance(c, dict) and c.get("column")
+        ]
+        plan["explanation"] = explanation
+
         if plan["mode"] == "table":
             plan["chart"] = None
 
@@ -107,6 +150,43 @@ class LLMEngine:
         raw = response.choices[0].message.content.strip()
         sql = self._strip_fences(raw)
         return sql
+
+    # ---------------------------------------------------------- key insights
+
+    def get_key_insights(self, table_name: str, stats: dict) -> list[str]:
+        """
+        Turn a precomputed stats dict (see insights_engine.compute_table_stats)
+        into a short list of plain-English "key insight" bullets. The LLM is
+        only allowed to phrase numbers that are already in `stats`.
+        """
+        system = INSIGHTS_SYSTEM_PROMPT.format(
+            table_name=table_name,
+            stats=json.dumps(stats, default=str),
+        )
+
+        response = self.client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": f"Give me the key insights for `{table_name}`."},
+            ],
+            temperature=0.2,
+            response_format={"type": "json_object"},
+        )
+
+        raw = response.choices[0].message.content.strip()
+        cleaned = self._strip_fences(raw)
+
+        try:
+            data = json.loads(cleaned)
+            insights = data.get("insights", [])
+            if not isinstance(insights, list) or not insights:
+                raise ValueError("no insights in response")
+            return [str(x).strip() for x in insights if str(x).strip()][:6]
+        except (json.JSONDecodeError, ValueError):
+            # fall back to treating each non-empty line as a bullet
+            lines = [ln.strip("-•* ").strip() for ln in cleaned.splitlines() if ln.strip()]
+            return lines[:6] if lines else ["No insights could be generated for this table."]
 
     # ------------------------------------------------------------------ helpers
 
