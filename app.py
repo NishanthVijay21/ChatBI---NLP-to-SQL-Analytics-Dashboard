@@ -13,7 +13,9 @@ from dotenv import load_dotenv
 
 from data_engine import DataEngine
 from llm_engine import LLMEngine
-from chart_component import render_chart, render_dashboard_export_button
+from chart_component import render_chart, render_dashboard_export_button, describe_chart_type
+from preprocess_ui import render_preprocess_panel, clear_preprocessor
+from insights_engine import compute_table_stats
 
 load_dotenv()
 st.set_page_config(page_title="ChatBI", page_icon="◧", layout="wide")
@@ -41,9 +43,25 @@ def get_llm() -> LLMEngine:
     return st.session_state.llm
 
 
+def _generate_insights(engine: DataEngine, table_name: str) -> None:
+    """
+    Compute grounded stats for a table and ask the LLM to phrase them as
+    "Key Insights" bullets, caching the result in session_state so it's only
+    (re)computed on upload or when the user explicitly refreshes it.
+    """
+    key = f"insights_{table_name}"
+    if not os.environ.get("CLOUDFLARE_API_TOKEN"):
+        return  # no credentials yet — silently skip, nothing to show
+    try:
+        stats = compute_table_stats(engine.get_dataframe(table_name))
+        st.session_state[key] = get_llm().get_key_insights(table_name, stats)
+    except Exception as e:
+        st.session_state[key] = [f"⚠️ Couldn't generate insights: {e}"]
+
+
 # ──────────────────────────────────────────── sidebar
 with st.sidebar:
-    st.markdown("## ◧ Querydeck")
+    st.markdown("## ◧ ChatBI")
 
     st.markdown("### Setup")
     if os.environ.get("CLOUDFLARE_API_TOKEN"):
@@ -68,6 +86,8 @@ with st.sidebar:
                 tname = engine.load_file(uf, uf.name)
                 st.session_state[file_key] = tname
                 st.success(f"Loaded **{uf.name}** → `{tname}`")
+                with st.spinner("Generating key insights…"):
+                    _generate_insights(engine, tname)
             except Exception as e:
                 st.error(f"Failed to load {uf.name}: {e}")
 
@@ -77,6 +97,8 @@ with st.sidebar:
             col1, col2 = st.columns([3, 1])
             col1.markdown(f"`{tname}` — {meta['row_count']:,} rows")
             if col2.button("✕", key=f"drop_{tname}", help=f"Remove {tname}"):
+                clear_preprocessor(tname)
+                st.session_state.pop(f"insights_{tname}", None)
                 engine.drop_table(tname)
                 st.rerun()
     else:
@@ -164,6 +186,22 @@ if not engine.tables:
     st.info("Upload a CSV or Excel file from the sidebar to get started.")
     st.stop()
 
+# ── key insights (surfaced automatically on upload, before any question is asked)
+tables_with_insights = [t for t in engine.tables if st.session_state.get(f"insights_{t}") is not None]
+if tables_with_insights:
+    st.markdown("### 💡 Key Insights")
+    for tname in tables_with_insights:
+        with st.container(border=True):
+            hc1, hc2 = st.columns([6, 1])
+            hc1.markdown(f"**`{tname}`**")
+            if hc2.button("🔄", key=f"refresh_insights_{tname}", help="Regenerate insights"):
+                with st.spinner("Regenerating insights…"):
+                    _generate_insights(engine, tname)
+                st.rerun()
+            for bullet in st.session_state[f"insights_{tname}"]:
+                st.markdown(f"- {bullet}")
+    st.markdown("")
+
 # ── schema expanders
 with st.expander("Loaded schemas", expanded=False):
     for tname, meta in engine.tables.items():
@@ -174,6 +212,18 @@ with st.expander("Loaded schemas", expanded=False):
                 "sample": "sample value", "null_pct": "null %",
             })
             st.dataframe(schema_df, use_container_width=True, hide_index=True)
+
+# ── preprocessing
+with st.expander("🧹 Preprocess data", expanded=False):
+    st.caption(
+        "Profile a table, then clean it up: missing values, duplicates, "
+        "datatype fixes, date parsing, normalization, and encoding."
+    )
+    pp_table = st.selectbox(
+        "Table to preprocess", list(engine.tables.keys()), key="preprocess_table_select"
+    )
+    if pp_table:
+        render_preprocess_panel(engine, pp_table)
 
 # ── query box
 with st.form("query_form", clear_on_submit=True):
@@ -241,9 +291,37 @@ for i, turn in enumerate(reversed(st.session_state.history)):
     st.markdown(f"**{turn['question']}**")
 
     plan = turn.get("plan") or {}
+    plan_mode = plan.get("mode", "chart")
+    explanation = plan.get("explanation") or {}
 
-    with st.expander("Generated SQL", expanded=False):
+    with st.expander("🧠 Explainability", expanded=False):
+        st.markdown("**Question**")
+        st.write(turn["question"])
+
+        st.markdown("**Generated SQL**")
         st.code(plan.get("sql", "(none)"), language="sql")
+
+        st.markdown("**Reasoning**")
+        reasoning = (explanation.get("reasoning") or "").strip()
+        columns_used = explanation.get("columns_used") or []
+        if reasoning:
+            st.write(reasoning)
+        if columns_used:
+            st.markdown("I identified:")
+            for c in columns_used:
+                col = c.get("column", "?")
+                role = c.get("role", "")
+                st.markdown(f"- `{col}`" + (f" — {role}" if role else ""))
+        if not reasoning and not columns_used:
+            st.caption("No reasoning details were returned for this query.")
+
+        agg_col, viz_col = st.columns(2)
+        with agg_col:
+            st.markdown("**Aggregation**")
+            st.write(explanation.get("aggregation") or "None")
+        with viz_col:
+            st.markdown("**Visualization**")
+            st.write(describe_chart_type(plan_mode, plan.get("chart")))
 
     if turn.get("error"):
         st.error(turn["error"])
@@ -255,7 +333,7 @@ for i, turn in enumerate(reversed(st.session_state.history)):
         continue
 
     note = plan.get("note", "")
-    mode = plan.get("mode", "chart")
+    mode = plan_mode
     caption = f"{note} · {len(result_df):,} row(s)" if note else f"{len(result_df):,} row(s)"
 
     # ── TABLE mode
