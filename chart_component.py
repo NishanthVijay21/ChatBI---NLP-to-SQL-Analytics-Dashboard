@@ -7,6 +7,40 @@ import streamlit.components.v1 as components
 
 COMPONENT_HEIGHT = 430 
 
+MARK_LABELS = {
+    "bar": "Bar Chart",
+    "line": "Line Chart",
+    "point": "Scatter Plot",
+    "circle": "Scatter Plot",
+    "square": "Scatter Plot",
+    "area": "Area Chart",
+    "arc": "Pie / Donut Chart",
+    "boxplot": "Box Plot",
+    "tick": "Tick Chart",
+    "rule": "Rule Chart",
+    "text": "Text Chart",
+    "geoshape": "Map",
+    "trail": "Trail Chart",
+}
+
+
+def describe_chart_type(mode: str, chart_spec: dict | None) -> str:
+    """
+    Human-readable visualization label for the Explainability panel — derived
+    straight from the Vega-Lite spec's "mark" so it always matches what's
+    actually rendered, rather than trusting the LLM to name it consistently.
+    """
+    if mode != "chart" or not chart_spec:
+        return "Table (no chart)"
+
+    mark = chart_spec.get("mark")
+    mark_type = mark.get("type", "") if isinstance(mark, dict) else (mark or "")
+    mark_type = str(mark_type).lower().strip()
+
+    if not mark_type:
+        return "Chart"
+    return MARK_LABELS.get(mark_type, f"{mark_type.title()} Chart")
+
 
 def render_chart(spec: dict, chart_id: str, title: str = "") -> None:
     spec_json = json.dumps(spec)
