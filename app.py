@@ -244,8 +244,8 @@ with st.form("query_form", clear_on_submit=True):
     submitted = st.form_submit_button("Run", use_container_width=True)
 
 if submitted and question.strip():
-    if not os.environ.get("CLOUDFLARE_API_TOKEN"):
-        st.error("Missing Cloudflare API Token in your .env file.")
+    if not _get_groq_key():
+        st.error("Missing GROQ_API_KEY in Streamlit Secrets or .env file."
     else:
         turn = {"question": question.strip(), "plan": None, "result_df": None, "error": None}
 
