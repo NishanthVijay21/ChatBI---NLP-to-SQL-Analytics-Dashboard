@@ -50,7 +50,8 @@ def _generate_insights(engine: DataEngine, table_name: str) -> None:
     (re)computed on upload or when the user explicitly refreshes it.
     """
     key = f"insights_{table_name}"
-    if not os.environ.get("CLOUDFLARE_API_TOKEN"):
+    if not _get_groq_key():
+        st.session_state[key] = ["⚠️ Missing GROQ_API_KEY in secrets or .env file."]
         return  # no credentials yet — silently skip, nothing to show
     try:
         stats = compute_table_stats(engine.get_dataframe(table_name))
