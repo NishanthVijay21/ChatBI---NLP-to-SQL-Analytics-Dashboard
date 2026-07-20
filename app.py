@@ -36,6 +36,9 @@ _init_state()
 
 engine: DataEngine = st.session_state.engine
 
+def _get_groq_key() -> str | None:
+    """Helper to retrieve Groq API key from Streamlit Secrets or environment variables."""
+    return st.secrets.get("GROQ_API_KEY", os.getenv("GROQ_API_KEY"))
 
 def get_llm() -> LLMEngine:
     if st.session_state.llm is None:
