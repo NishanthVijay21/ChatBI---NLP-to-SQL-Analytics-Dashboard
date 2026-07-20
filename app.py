@@ -64,10 +64,10 @@ with st.sidebar:
     st.markdown("## ◧ ChatBI")
 
     st.markdown("### Setup")
-    if os.environ.get("CLOUDFLARE_API_TOKEN"):
-        st.success("🔒 Secured by Cloudflare Workers AI")
+    if "GROQ_API_KEY" in st.secrets or os.environ.get("GROQ_API_KEY"):
+        st.success("⚡ Powered by Groq AI")
     else:
-        st.warning("⚠️ Missing Cloudflare credentials in .env file.")
+        st.warning("⚠️ Missing Groq API key in secrets or .env file.")
 
     st.divider()
 
