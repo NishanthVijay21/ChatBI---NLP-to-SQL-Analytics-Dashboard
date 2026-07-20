@@ -3,3 +3,4 @@ duckdb
 pandas
 groq
 python-dotenv
+openpyxl
